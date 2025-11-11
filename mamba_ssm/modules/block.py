@@ -9,7 +9,14 @@ from mamba_ssm.ops.triton.layer_norm import RMSNorm, layer_norm_fn
 
 class Block(nn.Module):
     def __init__(
-        self, dim, mixer_cls, mlp_cls, norm_cls=nn.LayerNorm, fused_add_norm=False, residual_in_fp32=False
+        self,
+        dim,
+        mixer_cls,
+        mlp_cls,
+        norm_cls=nn.LayerNorm,
+        fused_add_norm=False,
+        residual_in_fp32=False,
+        adapter_cls=None,
     ):
         """
         Simple block wrapping a mixer class with LayerNorm/RMSNorm and residual connection"
@@ -33,6 +40,7 @@ class Block(nn.Module):
             self.mlp = mlp_cls(dim)
         else:
             self.mlp = None
+        self.adapter = adapter_cls(dim) if adapter_cls is not None else None
         if self.fused_add_norm:
             assert RMSNorm is not None, "RMSNorm import fails"
             assert isinstance(
@@ -40,7 +48,12 @@ class Block(nn.Module):
             ), "Only LayerNorm and RMSNorm are supported for fused_add_norm"
 
     def forward(
-            self, hidden_states: Tensor, residual: Optional[Tensor] = None, inference_params=None, **mixer_kwargs
+        self,
+        hidden_states: Tensor,
+        residual: Optional[Tensor] = None,
+        inference_params=None,
+        adapter_kwargs=None,
+        **mixer_kwargs,
     ):
         r"""Pass the input through the encoder layer.
 
@@ -84,6 +97,10 @@ class Block(nn.Module):
                     is_rms_norm=isinstance(self.norm2, RMSNorm)
                 )
             hidden_states = self.mlp(hidden_states)
+
+        if self.adapter is not None:
+            adapter_kwargs = adapter_kwargs or {}
+            hidden_states = self.adapter(hidden_states, **adapter_kwargs)
 
         return hidden_states, residual
 

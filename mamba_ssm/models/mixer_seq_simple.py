@@ -17,6 +17,7 @@ from mamba_ssm.modules.mamba2 import Mamba2
 from mamba_ssm.modules.mha import MHA
 from mamba_ssm.modules.mlp import GatedMLP
 from mamba_ssm.modules.block import Block
+from mamba_ssm.modules.smh_adapter import SMHAdapter
 from mamba_ssm.utils.generation import GenerationMixin
 from mamba_ssm.utils.hf import load_config_hf, load_state_dict_hf
 
@@ -26,12 +27,28 @@ except ImportError:
     RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
 
 
+def _adapter_active(cfg):
+    if not cfg:
+        return False
+    for key in ("saliency_gate", "selective_memory"):
+        sub_cfg = cfg.get(key)
+        if sub_cfg is None:
+            continue
+        if isinstance(sub_cfg, dict):
+            if sub_cfg.get("enabled", True):
+                return True
+        else:
+            return True
+    return False
+
+
 def create_block(
     d_model,
     d_intermediate,
     ssm_cfg=None,
     attn_layer_idx=None,
     attn_cfg=None,
+    adapter_cfg=None,
     norm_epsilon=1e-5,
     rms_norm=False,
     residual_in_fp32=False,
@@ -70,6 +87,8 @@ def create_block(
         mlp_cls = partial(
             GatedMLP, hidden_features=d_intermediate, out_features=d_model, **factory_kwargs
         )
+    adapter_cfg = copy.deepcopy(adapter_cfg) if adapter_cfg is not None else None
+    adapter_cls = partial(SMHAdapter, **adapter_cfg) if adapter_cfg is not None else None
     block = Block(
         d_model,
         mixer_cls,
@@ -77,6 +96,7 @@ def create_block(
         norm_cls=norm_cls,
         fused_add_norm=fused_add_norm,
         residual_in_fp32=residual_in_fp32,
+        adapter_cls=adapter_cls,
     )
     block.layer_idx = layer_idx
     return block
@@ -125,6 +145,7 @@ class MixerModel(nn.Module):
         ssm_cfg=None,
         attn_layer_idx=None,
         attn_cfg=None,
+        adapter_cfg=None,
         norm_epsilon: float = 1e-5,
         rms_norm: bool = False,
         initializer_cfg=None,
@@ -138,6 +159,7 @@ class MixerModel(nn.Module):
         self.residual_in_fp32 = residual_in_fp32
 
         self.embedding = nn.Embedding(vocab_size, d_model, **factory_kwargs)
+        self.adapter_enabled = _adapter_active(adapter_cfg)
 
         # We change the order of residual and layer norm:
         # Instead of LN -> Attn / MLP -> Add, we do:
@@ -157,6 +179,7 @@ class MixerModel(nn.Module):
                     ssm_cfg=ssm_cfg,
                     attn_layer_idx=attn_layer_idx,
                     attn_cfg=attn_cfg,
+                    adapter_cfg=adapter_cfg,
                     norm_epsilon=norm_epsilon,
                     rms_norm=rms_norm,
                     residual_in_fp32=residual_in_fp32,
@@ -187,12 +210,28 @@ class MixerModel(nn.Module):
             for i, layer in enumerate(self.layers)
         }
 
-    def forward(self, input_ids, inference_params=None, **mixer_kwargs):
+    def forward(self, input_ids, inference_params=None, saliency_scores=None, **mixer_kwargs):
         hidden_states = self.embedding(input_ids)
         residual = None
+        adapter_kwargs = None
+        if self.adapter_enabled:
+            if saliency_scores is not None:
+                if saliency_scores.dim() not in (2, 3):
+                    raise ValueError("saliency_scores must be rank 2 or 3.")
+                if saliency_scores.shape[0] != hidden_states.shape[0] or saliency_scores.shape[1] != hidden_states.shape[1]:
+                    raise ValueError("saliency_scores must match (batch, seqlen).")
+                if saliency_scores.dim() == 2:
+                    saliency_scores = saliency_scores.unsqueeze(-1)
+                elif saliency_scores.size(-1) != 1:
+                    raise ValueError("saliency_scores trailing dimension must be 1.")
+            adapter_kwargs = {"saliency_scores": saliency_scores}
         for layer in self.layers:
             hidden_states, residual = layer(
-                hidden_states, residual, inference_params=inference_params, **mixer_kwargs
+                hidden_states,
+                residual,
+                inference_params=inference_params,
+                adapter_kwargs=adapter_kwargs,
+                **mixer_kwargs,
             )
         if not self.fused_add_norm:
             residual = (hidden_states + residual) if residual is not None else hidden_states
@@ -229,6 +268,7 @@ class MambaLMHeadModel(nn.Module, GenerationMixin):
         ssm_cfg = config.ssm_cfg
         attn_layer_idx = config.attn_layer_idx
         attn_cfg = config.attn_cfg
+        adapter_cfg = getattr(config, "adapter_cfg", None)
         rms_norm = config.rms_norm
         residual_in_fp32 = config.residual_in_fp32
         fused_add_norm = config.fused_add_norm
@@ -246,6 +286,7 @@ class MambaLMHeadModel(nn.Module, GenerationMixin):
             ssm_cfg=ssm_cfg,
             attn_layer_idx=attn_layer_idx,
             attn_cfg=attn_cfg,
+            adapter_cfg=adapter_cfg if adapter_cfg else None,
             rms_norm=rms_norm,
             initializer_cfg=initializer_cfg,
             fused_add_norm=fused_add_norm,
