@@ -8,8 +8,8 @@
   },
   "selective_memory": {
     "enabled": true,
-    "window_sizes": [8, 16, 32],
-    "memory_dim": 1024,
+    "window_sizes": [2],
+    "memory_dim": 128,
     "dropout": 0.1
   }
 }
