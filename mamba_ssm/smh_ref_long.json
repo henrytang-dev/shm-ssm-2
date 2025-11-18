@@ -1,0 +1,15 @@
+{
+  "saliency_gate": {
+    "enabled": true,
+    "hidden_dims": [64, 256],
+    "dropout": 0.1,
+    "clamp_range": [0.05, 0.95],
+    "train_only": true
+  },
+  "selective_memory": {
+    "enabled": true,
+    "window_sizes": [8, 16, 32],
+    "memory_dim": 1024,
+    "dropout": 0.1
+  }
+}

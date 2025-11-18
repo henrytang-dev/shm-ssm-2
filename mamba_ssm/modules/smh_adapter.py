@@ -91,6 +91,9 @@ class SelectiveMemory(nn.Module):
         queries = self.q_proj(hidden_states)
         for window in self.window_sizes:
             patches = self._gather_patches(hidden_states, window)  # (B, L, W, D)
+            if patches.size(-1) != hidden_states.size(-1):
+                # Ensure the last dimension corresponds to the feature dim
+                patches = patches.transpose(-1, -2)
             keys = self.k_proj(patches)
             values = self.v_proj(patches)
             attn_scores = torch.einsum("bld,blwd->blw", queries, keys) * self.scale
