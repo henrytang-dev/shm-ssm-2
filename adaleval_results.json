@@ -1,0 +1,47 @@
+[
+  {
+    "task": "stackselect_1k",
+    "num_examples": 50,
+    "accuracy": 0.32,
+    "f1": 0.32,
+    "throughput_toks_per_sec": 24.38860056712661,
+    "peak_mem_gb": 16.81334114074707,
+    "model": "checkpoint-500"
+  },
+  {
+    "task": "stackselect_4k",
+    "num_examples": 50,
+    "accuracy": 0.04,
+    "f1": 0.04,
+    "throughput_toks_per_sec": 22.79509095963358,
+    "peak_mem_gb": 17.156179428100586,
+    "model": "checkpoint-500"
+  },
+  {
+    "task": "stackselect_8k",
+    "num_examples": 50,
+    "accuracy": 0.04,
+    "f1": 0.04,
+    "throughput_toks_per_sec": 20.425366897921062,
+    "peak_mem_gb": 17.53118133544922,
+    "model": "checkpoint-500"
+  },
+  {
+    "task": "textsort_1k",
+    "num_examples": 50,
+    "accuracy": 0.0,
+    "f1": 0.0,
+    "throughput_toks_per_sec": 24.05718638677123,
+    "peak_mem_gb": 16.516157627105713,
+    "model": "checkpoint-500"
+  },
+  {
+    "task": "textsort_2k",
+    "num_examples": 50,
+    "accuracy": 0.0,
+    "f1": 0.0,
+    "throughput_toks_per_sec": 23.566204624528407,
+    "peak_mem_gb": 16.6071195602417,
+    "model": "checkpoint-500"
+  }
+]
